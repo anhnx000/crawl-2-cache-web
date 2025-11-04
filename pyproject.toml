@@ -1,0 +1,15 @@
+[project]
+name = "kiagds_local_cache"
+version = "1.0.0"
+description = "Proxy + cache để duyệt và xem kiagds.ru trên localhost:5002"
+requires-python = ">=3.11"
+dependencies = [
+    "Flask==3.0.0",
+    "requests==2.32.3",
+    "httpx==0.27.2",
+    "beautifulsoup4==4.12.3",
+]
+
+[project.optional-dependencies]
+playwright = ["playwright==1.47.0"]
+

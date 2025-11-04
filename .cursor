@@ -1,0 +1,9 @@
+- Tôi chỉ sử dụng Ubuntu Linux 
+- Tôi đã cài đặt anaconda và có môi trường conda tên là "crawl"  
+    - Cách dùng:
+        - conda activate crawl
+        - python python_file.py
+# use python env 
+- Luôn sử dụng môi trường anaconda tên là "crawl" 
+- Sử dụng "uv" để pip install môi  trường vào "crawl" 
+- Sử dụng cổng 5002 để xây dựng lại web 

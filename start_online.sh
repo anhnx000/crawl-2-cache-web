@@ -1,0 +1,27 @@
+#!/bin/bash
+# Chạy proxy ở chế độ ONLINE (dùng cache + fetch từ internet khi cần)
+
+cd /home/xuananh/work_1/anhnx/crawl-2
+
+echo "=========================================="
+echo "🌐 Starting Proxy in ONLINE Mode"
+echo "=========================================="
+echo ""
+echo "Mode: ONLINE (cache + live fallback)"
+echo "URL: http://localhost:5002"
+echo ""
+echo "✅ Sẽ fetch từ internet nếu cache miss"
+echo ""
+echo "Press Ctrl+C to stop"
+echo ""
+echo "=========================================="
+echo ""
+
+# Bật LIVE_FALLBACK để fetch khi cache miss
+export LIVE_FALLBACK=true
+export ORIGIN="https://kiagds.ru"
+export LOCAL_BASE="http://localhost:5002"
+export CACHE_DIR="cache"
+
+python3 app.py
+

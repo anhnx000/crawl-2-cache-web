@@ -1,0 +1,55 @@
+Viết code extract từ file @tree_title.json để tạo các link gốc (quan trọng khi tôi sử dụng nó để xuất hiện bảng chọn để dẫn đến các docuemnt khác) 
+
+
+
+Các important link như 
+https://kiagds.ru/?mode=ETM&vin=&marke=&year=&model=&mkb=
+https://kiagds.ru/?mode=ETM&marke=KM
+https://kiagds.ru/?mode=ETM&marke=KM&year=2016
+https://kiagds.ru/?mode=ETM&marke=KM&year=2016&model=3102
+https://kiagds.ru/?mode=ETM&marke=KM&year=2016&model=3102&mkb=90__17044
+
+
+
+với thứ tự các tham số cần quan tâm: 
+
+
+tham số đầu: mode 
+http://localhost:5002/?mode=ETM
+
+tham số sau: marke
+http://localhost:5002/?mode=ETM&marke=KM 
+
+
+
+tham số sau nữa: year  
+https://kiagds.ru/?mode=ETM&marke=KM&year=2026
+
+tham số sau nữa: model
+https://kiagds.ru/?mode=ETM&marke=KM&year=2026&model=9193
+
+
+tham số sau nữa: mkb
+https://kiagds.ru/?mode=ETM&marke=KM&year=2026&model=9193&mkb
+
+
+tham số sau nữa: docId 
+https://kiagds.ru/?mode=ETM&marke=KM&year=2026&model=9193&mkb
+
+tham số sau nữa: page 
+https://kiagds.ru/?mode=ETM&marke=KM&year=2026&model=9193&mkb=447__29696&docId=435535&page=
+
+
+
+# ví dụ cho đường dẫn cuối cùng:
+https://kiagds.ru/?mode=ETM&marke=KM&year=2026&model=9193&mkb=447__29696&docId=435535&page=
+
+
+Viết các đoạn code xuất link kia vào file extract_important_link_to_crawl.py 
+
+
+
+
+
+
+
