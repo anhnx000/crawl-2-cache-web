@@ -16,7 +16,6 @@ conda-meta/
 # Cache
 cache/
 *.bin
-*.json
 
 # Virtual environments (nếu có)
 .venv/
