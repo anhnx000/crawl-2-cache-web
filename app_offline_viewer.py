@@ -1,23 +1,23 @@
-
 import os, re, json, hashlib, urllib.parse
 from flask import Flask, request, Response
-import requests
 
 # ================== CONFIG ==================
+# OFFLINE VIEWER - Port 5003
+# Read-only: Chỉ đọc cache, không fetch từ internet, không ảnh hưởng crawl process
 ORIGIN = os.getenv("ORIGIN", "https://kiagds.ru")
-LOCAL_BASE = os.getenv("LOCAL_BASE", "http://localhost:5002")
-CACHE_DIR = os.getenv("CACHE_DIR", "cache")
+LOCAL_BASE = os.getenv("LOCAL_BASE", "http://localhost:5003")  # Port 5003
+CACHE_DIR = os.getenv("CACHE_DIR", "cache")  # Dùng chung cache với crawl process
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-LIVE_FALLBACK = os.getenv("LIVE_FALLBACK", "true").lower() == "true"
-UA = "LocalCacheProxy/1.0 (+offline-archiver; respectful; contact=you@example.com)"
-TIMEOUT = 25
+LIVE_FALLBACK = False  # OFFLINE ONLY - Hardcode, không cho phép đổi
+# Không có session vì không fetch từ internet
+# Không có UA, TIMEOUT vì không cần
 
 ALLOWED_HOST = "kiagds.ru"  # chỉ proxy domain này để an toàn
 # ============================================
 
 app = Flask(__name__)
-session = requests.Session()
+# Note: Không tạo session vì không fetch từ internet
 
 def _cache_key(method: str, url: str) -> str:
     return hashlib.sha256(f"{method} {url}".encode("utf-8")).hexdigest()
@@ -27,6 +27,7 @@ def _paths(method: str, url: str):
     return os.path.join(CACHE_DIR, key + ".bin"), os.path.join(CACHE_DIR, key + ".json")
 
 def _load_cache(method: str, url: str):
+    """Load cache - READ ONLY, không ghi đè"""
     bin_path, meta_path = _paths(method, url)
     if not (os.path.exists(bin_path) and os.path.exists(meta_path)):
         return None
@@ -35,14 +36,6 @@ def _load_cache(method: str, url: str):
     with open(meta_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
     return body, meta
-
-def _save_cache(method: str, url: str, body: bytes, headers: dict, status: int):
-    bin_path, meta_path = _paths(method, url)
-    with open(bin_path, "wb") as f:
-        f.write(body)
-    meta = {"url": url, "status": status, "headers": dict(headers)}
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
 
 def _is_type(content_type: str, needle: str) -> bool:
     ct = (content_type or "").lower()
@@ -53,7 +46,6 @@ def _is_html(content_type: str) -> bool:
 
 def _is_textual(content_type: str) -> bool:
     ct = (content_type or "").lower()
-    # textual types we may safely rewrite absolute domain
     return (
         "text/" in ct
         or "javascript" in ct
@@ -63,13 +55,17 @@ def _is_textual(content_type: str) -> bool:
     )
 
 def _rewrite_text(s: str) -> str:
-    # https://kiagds.ru/... -> http://localhost:5002/...
+    """Rewrite URLs về LOCAL_BASE (port 5003)"""
+    # https://kiagds.ru/... -> http://localhost:5003/...
     s = re.sub(r"https?://kiagds\.ru", LOCAL_BASE, s, flags=re.I)
-    # //kiagds.ru/...       -> //localhost:5002/...
-    s = re.sub(r"(?<!:)//kiagds\.ru", "//localhost:5002", s, flags=re.I)
+    # //kiagds.ru/...       -> //localhost:5003/...
+    s = re.sub(r"(?<!:)//kiagds\.ru", "//localhost:5003", s, flags=re.I)
+    # Also rewrite localhost:5002 -> localhost:5003 (nếu có trong cache từ crawl process)
+    s = re.sub(r"http://localhost:5002", LOCAL_BASE, s, flags=re.I)
     return s
 
 def _proxy_get(path: str):
+    """Proxy GET - OFFLINE ONLY, chỉ dùng cache, không fetch từ internet"""
     # Chỉ proxy cho domain cho phép
     target = urllib.parse.urljoin(ORIGIN, path)
     raw_qs = request.query_string.decode("utf-8")
@@ -88,28 +84,14 @@ def _proxy_get(path: str):
         body, meta = cached
         headers = meta.get("headers", {})
         status = int(meta.get("status", 200))
-    elif LIVE_FALLBACK:
-        # Lấy mới từ origin & lưu cache (chỉ nếu chưa có cache)
-        resp = session.get(
-            target,
-            headers={"User-Agent": UA, "Accept-Encoding": "identity"},
-            timeout=TIMEOUT,
-            allow_redirects=True,
-        )
-        status = resp.status_code
-        body = resp.content  # requests trả về đã giải nén nếu cần
-        headers = dict(resp.headers)
-        # Chỉ lưu cache nếu chưa có cache (không ghi đè cache cũ)
-        if not cached:
-            _save_cache(method, target, body, headers, status)
     else:
-        return Response("Offline cache miss", status=404)
+        # OFFLINE ONLY - không fetch từ internet
+        return Response("Offline cache miss - This URL is not cached yet. Please wait for crawler to cache it at port 5002.", status=404)
 
     content_type = headers.get("Content-Type", "application/octet-stream")
 
-    # Tất cả textual (HTML/CSS/JS/JSON) => rewrite domain tuyệt đối về LOCAL_BASE
+    # Tất cả textual (HTML/CSS/JS/JSON) => rewrite domain về LOCAL_BASE (5003)
     if _is_textual(content_type):
-        # lấy charset nếu có
         m = re.search(r"charset=([^;]+)", content_type, flags=re.I)
         enc = (m.group(1).strip() if m else "utf-8")
         try:
@@ -129,7 +111,7 @@ def _proxy_get(path: str):
 
         return Response(body_out, status=status, headers=headers_out, content_type=content_type)
 
-    # Nhị phân (ảnh, font, pdf...): trả nguyên vẹn, bỏ content-encoding để tránh lệch
+    # Nhị phân (ảnh, font, pdf...): trả nguyên vẹn
     headers_out = {
         k: v for k, v in headers.items()
         if k.lower() not in ("content-length", "content-encoding", "transfer-encoding")
@@ -172,7 +154,7 @@ def _get_param_value(params, key):
     return result
 
 def _build_menu_url(base_params, new_param_key=None, new_param_value=None):
-    """Build URL với parameters, có thể thay đổi một param"""
+    """Build URL với parameters - dùng LOCAL_BASE (5003)"""
     params = {}
     
     # Copy existing params (trừ param sẽ thay đổi)
@@ -200,7 +182,6 @@ def _build_menu_url(base_params, new_param_key=None, new_param_value=None):
     # Set new param và clear dependent params
     if new_param_key and new_param_value and new_param_value != "null":
         params[new_param_key] = new_param_value
-        # Clear dependent params khi thay đổi param cha
         if new_param_key == "mode":
             params.pop("marke", None)
             params.pop("year", None)
@@ -216,7 +197,7 @@ def _build_menu_url(base_params, new_param_key=None, new_param_value=None):
         elif new_param_key == "model":
             params.pop("mkb", None)
     
-    # Build URL
+    # Build URL với LOCAL_BASE (5003)
     if not params:
         return LOCAL_BASE + "/"
     return LOCAL_BASE + "/?" + urllib.parse.urlencode(params)
@@ -259,8 +240,6 @@ def _generate_menu_html(params):
     html_parts.append('</ol></nav></div>')
     
     # Generate accordion menu structure
-    # Note: Menu thực tế có các doc links, nhưng chúng ta chỉ có tree structure
-    # Nên tạo menu navigation dựa trên tree hierarchy
     html_parts.append('<ul class="accordeon">')
     
     # Tạo menu items dựa trên hierarchy
@@ -457,16 +436,14 @@ def _generate_select_options(params, select_type):
 
 @app.route("/ajax.php", methods=["GET"])
 def ajax_handler():
-    """Handle AJAX requests - ưu tiên cache, fallback về generate từ tree_title.json"""
+    """Handle AJAX requests - OFFLINE ONLY, chỉ dùng cache hoặc generate từ tree"""
     cat = request.args.get("cat")
     
-    # Build target URL để kiểm tra cache
     target = f"{ORIGIN}/ajax.php"
     raw_qs = request.query_string.decode("utf-8")
     if raw_qs:
         target = f"{target}?{raw_qs}"
     
-    # Parse parameters (hỗ trợ cả list và single value)
     params = {
         "mode": request.args.getlist("mode"),
         "marke": request.args.getlist("marke"),
@@ -476,7 +453,7 @@ def ajax_handler():
         "vin": request.args.getlist("vin"),
     }
     
-    # BƯỚC 1: Kiểm tra cache trước (ưu tiên cache để giữ format gốc)
+    # Kiểm tra cache trước
     cached = _load_cache("GET", target)
     if cached:
         body, meta = cached
@@ -488,12 +465,12 @@ def ajax_handler():
             enc = "utf-8"
             try:
                 text = body.decode(enc, errors="replace")
-                text = _rewrite_text(text)  # Rewrite URLs về LOCAL_BASE
+                text = _rewrite_text(text)  # Rewrite về port 5003
                 return Response(text, status=status, content_type=content_type)
             except Exception:
                 pass
     
-    # BƯỚC 2: Nếu không có cache, generate từ tree_title.json
+    # Generate từ tree_title.json nếu không có cache
     if cat == "leftMenu":
         menu_html = _generate_menu_html(params)
         return Response(menu_html, content_type="text/html; charset=utf-8")
@@ -503,23 +480,26 @@ def ajax_handler():
         return Response(title, content_type="text/html; charset=utf-8")
     
     elif cat and cat.startswith("get_"):
-        # Handle get_marke, get_year, get_model, get_mkb
         select_type = cat.replace("get_", "")
         if select_type in ["marke", "year", "model", "mkb"]:
             options_html = _generate_select_options(params, select_type)
             return Response(options_html, content_type="text/html; charset=utf-8")
     
-    # BƯỚC 3: Fallback về proxy bình thường (nếu online)
-    if LIVE_FALLBACK:
-        return _proxy_get("/ajax.php")
-    else:
-        return Response("Offline cache miss", status=404)
+    # OFFLINE ONLY - không fetch từ internet
+    return Response("Offline cache miss - This AJAX request is not cached yet.", status=404)
 
 @app.route("/_cache_stats")
 def cache_stats():
-    # Thống kê sơ bộ
+    """Cache stats - chỉ đếm, không ảnh hưởng crawl"""
     n = len([f for f in os.listdir(CACHE_DIR) if f.endswith(".bin")])
-    return {"cached_responses": n, "live_fallback": LIVE_FALLBACK, "origin": ORIGIN}
+    return {
+        "cached_responses": n, 
+        "live_fallback": False,  # OFFLINE ONLY
+        "origin": ORIGIN,
+        "port": 5003,
+        "mode": "offline-viewer",
+        "read_only": True
+    }
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>", methods=["GET"])
@@ -527,4 +507,16 @@ def any_get(path):
     return _proxy_get("/" + path)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5002)
+    print("=" * 60)
+    print("🔌 Offline Viewer Proxy")
+    print("=" * 60)
+    print(f"Port: 5003")
+    print(f"Mode: OFFLINE ONLY (read-only)")
+    print(f"Cache dir: {CACHE_DIR}")
+    print(f"URL: http://localhost:5003")
+    print(f"⚠️  Only cached URLs are available")
+    print(f"✅ Does NOT affect crawl process at port 5002")
+    print("=" * 60)
+    print("")
+    app.run(host="0.0.0.0", port=5003)
+

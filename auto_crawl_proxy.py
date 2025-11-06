@@ -11,6 +11,7 @@ import sys
 import hashlib
 import argparse
 import re
+from typing import Set
 from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 import httpx
 from bs4 import BeautifulSoup
@@ -19,6 +20,7 @@ from bs4 import BeautifulSoup
 PROXY_BASE = os.getenv("LOCAL_BASE", "http://localhost:5002")  # Proxy đang chạy
 ORIGIN = os.getenv("ORIGIN", "https://kiagds.ru")
 CACHE_DIR = os.getenv("CACHE_DIR", "cache")
+IMPORTANT_LINKS_FILE = "important_links.json"
 UA = "AutoCrawler/1.0 (+respectful; via-proxy)"
 os.makedirs(CACHE_DIR, exist_ok=True)
 # ============================================
@@ -36,6 +38,97 @@ def is_cached(url: str) -> bool:
     """Kiểm tra URL đã được cache chưa"""
     bin_path, meta_path = cache_paths("GET", url)
     return os.path.exists(bin_path) and os.path.exists(meta_path)
+
+def has_docid_and_page(url: str) -> bool:
+    """Kiểm tra URL có chứa docId và page không"""
+    try:
+        parsed = urlparse(url)
+        query = parsed.query
+        return 'docId=' in query and 'page=' in query
+    except Exception:
+        return False
+
+def extract_docids_from_html(base_url: str, html: str) -> Set[str]:
+    """
+    Extract tất cả docId từ HTML (từ ajaxHref, href, docid attribute)
+    Returns: Set of docId values (strings)
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    docids = set()
+    
+    # Extract từ docid attribute (lowercase)
+    for el in soup.find_all(attrs={"docid": True}):
+        docid = el.get("docid")
+        if docid and docid.isdigit():
+            docids.add(docid)
+    
+    # Extract từ docId trong ajaxHref và onclick
+    for el in soup.find_all():
+        onclick = el.get("onclick", "")
+        href = el.get("href", "")
+        
+        # Tìm docId trong ajaxHref('...')
+        for text in [onclick, href]:
+            if not text:
+                continue
+            
+            # Pattern: ajaxHref('?...&docId=123...')
+            ajax_matches = re.findall(r"ajaxHref\s*\(\s*['\"]([^'\"]*docId=(\d+)[^'\"]*)['\"]", text, re.IGNORECASE)
+            for full_match, docid in ajax_matches:
+                if docid.isdigit():
+                    docids.add(docid)
+            
+            # Pattern: docId=123 trong query string
+            docid_matches = re.findall(r'[?&]docId=(\d+)', text, re.IGNORECASE)
+            for docid in docid_matches:
+                if docid.isdigit():
+                    docids.add(docid)
+    
+    return docids
+
+def build_docid_page_urls(base_url: str, docids: Set[str], max_page: int = 10) -> Set[str]:
+    """
+    Tạo các URLs với docId và page từ base URL
+    Args:
+        base_url: URL gốc (ví dụ: https://kiagds.ru/?mode=ETM&marke=KM&year=2026&model=9923&mkb=445__29519)
+        docids: Set các docId
+        max_page: Số trang tối đa để tạo (mặc định: 10)
+    Returns: Set of URLs
+    """
+    urls = set()
+    
+    try:
+        parsed = urlparse(base_url)
+        base_params = parse_qs(parsed.query, keep_blank_values=False)
+        
+        # Xóa docId và page nếu có trong base_params
+        base_params.pop("docId", None)
+        base_params.pop("docid", None)
+        base_params.pop("page", None)
+        
+        # Build base URL không có docId và page
+        base_query = urlencode({k: v[0] if isinstance(v, list) and len(v) == 1 else v 
+                               for k, v in base_params.items()}, doseq=True)
+        base_url_clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if base_query:
+            base_url_clean = f"{base_url_clean}?{base_query}"
+        
+        # Tạo URLs cho mỗi docId với các page
+        for docid in docids:
+            for page in range(1, max_page + 1):
+                # Build URL với docId và page
+                params = {k: (v[0] if isinstance(v, list) and len(v) == 1 else v) 
+                         for k, v in base_params.items()}
+                params["docId"] = docid
+                params["page"] = str(page)
+                
+                url = f"{base_url_clean}?{urlencode(params)}"
+                urls.add(normalize_url(url))
+    
+    except Exception as e:
+        print(f"  ⚠️  Lỗi khi build docId page URLs: {e}")
+    
+    return urls
 
 def in_domain(u: str) -> bool:
     """Kiểm tra URL có thuộc domain kiagds.ru không"""
@@ -354,12 +447,72 @@ async def fetch_via_proxy_with_retry(client: httpx.AsyncClient, url: str, proxy_
     # Raise exception cuối cùng nếu tất cả lần retry đều thất bại
     raise last_exception
 
+def load_important_links() -> set:
+    """Load danh sách URLs từ important_links.json"""
+    if not os.path.exists(IMPORTANT_LINKS_FILE):
+        return set()
+    
+    try:
+        with open(IMPORTANT_LINKS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        urls = set()
+        if isinstance(data, list):
+            urls = set(data)
+        elif isinstance(data, dict) and 'urls' in data:
+            urls = {item.get('url') if isinstance(item, dict) else item for item in data['urls']}
+        
+        return urls
+    except Exception as e:
+        print(f"⚠️  Lỗi khi đọc {IMPORTANT_LINKS_FILE}: {e}")
+        return set()
+
+def save_important_links(urls: list):
+    """Lưu danh sách URLs vào important_links.json (thread-safe)"""
+    try:
+        # Sắp xếp để dễ đọc
+        sorted_urls = sorted(urls)
+        with open(IMPORTANT_LINKS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(sorted_urls, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️  Lỗi khi lưu {IMPORTANT_LINKS_FILE}: {e}")
+
+async def append_to_important_links(new_urls: set, existing_urls: set, lock: asyncio.Lock):
+    """Append URLs mới vào important_links.json (thread-safe)"""
+    if not new_urls:
+        return 0
+    
+    # Filter URLs mới (chưa có trong existing_urls)
+    truly_new = {u for u in new_urls if u not in existing_urls}
+    if not truly_new:
+        return 0
+    
+    # Update existing_urls
+    existing_urls.update(truly_new)
+    
+    # Lưu vào file (cần lock để tránh race condition)
+    async with lock:
+        # Load lại để đảm bảo không mất dữ liệu
+        current = load_important_links()
+        current.update(truly_new)
+        save_important_links(list(current))
+    
+    return len(truly_new)
+
 async def crawl(args, proxy_base: str):
     seen = set()
     q = asyncio.Queue()
     cached_count = 0
     new_count = 0
     error_count = 0
+    
+    # Load important_links.json để track URLs đã có
+    important_links = load_important_links()
+    print(f"📖 Đã load {len(important_links)} URLs từ {IMPORTANT_LINKS_FILE}")
+    
+    # Lock để đảm bảo thread-safe khi update important_links.json
+    important_links_lock = asyncio.Lock()
+    new_important_links_count = 0
 
     # Thêm seed URLs
     seeds = []
@@ -432,20 +585,19 @@ async def crawl(args, proxy_base: str):
         sem = asyncio.Semaphore(args.concurrency)
 
         async def worker():
-            nonlocal cached_count, new_count, error_count
+            nonlocal cached_count, new_count, error_count, new_important_links_count
             while True:
                 try:
                     url, depth = await asyncio.wait_for(q.get(), timeout=1.0)
                 except asyncio.TimeoutError:
                     return
                 
-                # Kiểm tra đã cache chưa
-                if is_cached(url):
+                # Kiểm tra đã cache chưa (chỉ để đếm, không skip)
+                already_cached = is_cached(url)
+                if already_cached:
                     cached_count += 1
                     if args.verbose:
-                        print(f"[CACHED] {url}")
-                    q.task_done()
-                    continue
+                        print(f"[ALREADY_CACHED] {url} (crawl lại để tìm links mới)")
 
                 try:
                     async with sem:
@@ -453,9 +605,12 @@ async def crawl(args, proxy_base: str):
                             await asyncio.sleep(args.delay)
                         
                         r = await fetch_via_proxy_with_retry(client, url, proxy_base, max_retries=args.max_retries, verbose=args.verbose)
-                        new_count += 1
+                        # Đếm là "mới crawl" nếu chưa có cache trước đó
+                        if not already_cached:
+                            new_count += 1
                         status_icon = "✅" if r.status_code == 200 else "⚠️"
-                        print(f"{status_icon} [{r.status_code}] {url} (depth={depth})")
+                        cache_status = " [CACHED]" if already_cached else ""
+                        print(f"{status_icon} [{r.status_code}]{cache_status} {url} (depth={depth})")
                         
                         # Extract links từ HTML
                         ctype = r.headers.get("Content-Type", "").lower()
@@ -474,6 +629,8 @@ async def crawl(args, proxy_base: str):
                             try:
                                 links = extract_links(url, text)
                                 added = 0
+                                new_important_links = set()  # Track URLs có docId và page
+                                
                                 for link in links:
                                     try:
                                         normalized = normalize_url(link)
@@ -481,8 +638,45 @@ async def crawl(args, proxy_base: str):
                                             seen.add(normalized)
                                             await q.put((normalized, depth + 1))
                                             added += 1
+                                            
+                                            # Nếu URL có docId và page, thêm vào danh sách để update important_links.json
+                                            if has_docid_and_page(normalized):
+                                                new_important_links.add(normalized)
                                     except Exception:
                                         continue
+                                
+                                # Extract docIds từ HTML và tạo links với các page
+                                try:
+                                    docids = extract_docids_from_html(url, text)
+                                    if docids:
+                                        # Phát hiện max_page từ pagination
+                                        max_page_info, pagination_type = extract_pagination_info(url, text)
+                                        max_page = max_page_info if max_page_info else 10  # Default 10 nếu không tìm thấy
+                                        
+                                        # Tạo URLs với docId và page
+                                        docid_page_urls = build_docid_page_urls(url, docids, max_page)
+                                        
+                                        # Thêm vào queue và track
+                                        docid_links_added = 0
+                                        for docid_url in docid_page_urls:
+                                            if docid_url not in seen:
+                                                seen.add(docid_url)
+                                                await q.put((docid_url, depth + 1))
+                                                docid_links_added += 1
+                                                new_important_links.add(docid_url)
+                                        
+                                        if docid_links_added > 0:
+                                            print(f"  🔗 Tìm thấy {len(docids)} docId, tạo {docid_links_added} links với page (max_page={max_page})")
+                                except Exception as docid_error:
+                                    if args.verbose:
+                                        print(f"  ⚠️  Lỗi khi extract docIds: {docid_error}")
+                                
+                                # Tự động update important_links.json nếu có links mới có docId và page
+                                if new_important_links:
+                                    count = await append_to_important_links(new_important_links, important_links, important_links_lock)
+                                    if count > 0:
+                                        new_important_links_count += count
+                                        print(f"  📝 Đã thêm {count} URLs có docId&page vào {IMPORTANT_LINKS_FILE} (tổng: {new_important_links_count} mới)")
                                 
                                 # Tự động phát hiện và crawl pagination
                                 if args.auto_pagination:
@@ -502,6 +696,8 @@ async def crawl(args, proxy_base: str):
                                             
                                             # Thêm tất cả các trang vào queue
                                             pagination_added = 0
+                                            new_pagination_important = set()
+                                            
                                             for page_num in range(1, max_page + 1):
                                                 query_params['page'] = str(page_num)
                                                 pagination_url = f"{base_url_for_pagination}?{urlencode(query_params)}"
@@ -511,9 +707,20 @@ async def crawl(args, proxy_base: str):
                                                     seen.add(normalized)
                                                     await q.put((normalized, depth))
                                                     pagination_added += 1
+                                                    
+                                                    # Nếu pagination URL có docId và page, thêm vào important_links
+                                                    if has_docid_and_page(normalized):
+                                                        new_pagination_important.add(normalized)
                                             
                                             if pagination_added > 0:
                                                 print(f"  📄 Đã thêm {pagination_added} trang pagination vào queue")
+                                            
+                                            # Update important_links.json cho pagination URLs
+                                            if new_pagination_important:
+                                                count = await append_to_important_links(new_pagination_important, important_links, important_links_lock)
+                                                if count > 0:
+                                                    new_important_links_count += count
+                                                    print(f"  📝 Đã thêm {count} pagination URLs có docId&page vào {IMPORTANT_LINKS_FILE}")
                                     except Exception as pagination_error:
                                         if args.verbose:
                                             print(f"  ⚠️  Không thể extract pagination từ {url}: {pagination_error}")
@@ -539,12 +746,17 @@ async def crawl(args, proxy_base: str):
         for w in workers:
             w.cancel()
         
+        # Đợi tất cả các task save important_links.json hoàn thành
+        await asyncio.sleep(1)  # Đợi các async save hoàn thành
+        
         print(f"\n{'='*60}")
         print(f"✅ Hoàn thành crawl!")
         print(f"   - Đã cache sẵn: {cached_count} URLs")
         print(f"   - Mới crawl: {new_count} URLs")
         print(f"   - Lỗi: {error_count} URLs")
         print(f"   - Tổng URLs đã xử lý: {len(seen)} URLs")
+        if new_important_links_count > 0:
+            print(f"   - URLs có docId&page mới thêm vào {IMPORTANT_LINKS_FILE}: {new_important_links_count}")
         print(f"{'='*60}")
 
 if __name__ == "__main__":

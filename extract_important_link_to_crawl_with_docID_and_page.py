@@ -1,150 +1,28 @@
 #!/usr/bin/env python3
 """
-Script to extract important links from tree_title.json
-AND extract docId & page links from a specific URL
-Creates links at each level of the parameter hierarchy:
-- mode
-- mode + marke
-- mode + marke + year
-- mode + marke + year + model
-- mode + marke + year + model + mkb
+Script để extract docId và page links từ một URL hoặc nhiều URLs
+và append vào important_links_with_docid_and_page.json
 
-Also extracts docId and page links from a given URL
+Khi duyệt vào web, phát hiện ra links có docId và page thì append vào file này
 """
 
-import json
 import asyncio
 import os
+import json
 import sys
 import re
 import argparse
-from typing import List, Dict, Any, Set
-from urllib.parse import urlencode, urlparse, urljoin, parse_qs
+from typing import List, Set
+from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 import httpx
 from bs4 import BeautifulSoup
 
 # ================== CONFIG ==================
 PROXY_BASE = os.getenv("LOCAL_BASE", "http://localhost:5002")
 ORIGIN = os.getenv("ORIGIN", "https://kiagds.ru")
-IMPORTANT_LINKS_FILE = "important_links.json"
-UA = "ExtractImportantLinks/1.0 (+respectful; via-proxy)"
+IMPORTANT_LINKS_DOCID_PAGE_FILE = "important_links_with_docid_and_page.json"
+UA = "ExtractDocIdPageLinks/1.0 (+respectful; via-proxy)"
 # ============================================
-
-# Base URL for the links
-BASE_URL = "https://kiagds.ru/"
-
-def build_url(params: Dict[str, str]) -> str:
-    """Build URL with given parameters"""
-    if not params:
-        return BASE_URL
-    return f"{BASE_URL}?{urlencode(params)}"
-
-def extract_links(data: Dict[str, Any], current_params: Dict[str, str] = None) -> List[str]:
-    """
-    Recursively extract all important links from the tree structure
-    
-    Args:
-        data: The tree data structure
-        current_params: Current accumulated parameters
-        
-    Returns:
-        List of URLs
-    """
-    if current_params is None:
-        current_params = {}
-    
-    links = []
-    
-    # Handle mode level (top level)
-    if "mode" in data and isinstance(data["mode"], list):
-        for mode_item in data["mode"]:
-            if mode_item.get("value"):
-                mode_params = {**current_params, "mode": mode_item["value"]}
-                links.append(build_url(mode_params))
-                
-                # Process children (marke)
-                if "children" in mode_item and "marke" in mode_item["children"]:
-                    marke_data = mode_item["children"]["marke"]
-                    links.extend(extract_marke_level(marke_data, mode_params))
-    
-    return links
-
-def extract_marke_level(marke_data: Dict[str, Any], current_params: Dict[str, str]) -> List[str]:
-    """Extract links at marke level"""
-    links = []
-    
-    if "options" in marke_data:
-        for option in marke_data["options"]:
-            # Skip placeholder entries (where value is null)
-            if option.get("value") is None or option.get("placeholder"):
-                continue
-                
-            marke_params = {**current_params, "marke": option["value"]}
-            links.append(build_url(marke_params))
-            
-            # Process children (year)
-            if "children" in option and "year" in option["children"]:
-                year_data = option["children"]["year"]
-                links.extend(extract_year_level(year_data, marke_params))
-    
-    return links
-
-def extract_year_level(year_data: Dict[str, Any], current_params: Dict[str, str]) -> List[str]:
-    """Extract links at year level"""
-    links = []
-    
-    if "options" in year_data:
-        for option in year_data["options"]:
-            # Skip placeholder entries
-            if option.get("value") is None or option.get("placeholder"):
-                continue
-                
-            year_params = {**current_params, "year": option["value"]}
-            links.append(build_url(year_params))
-            
-            # Process children (model)
-            if "children" in option and "model" in option["children"]:
-                model_data = option["children"]["model"]
-                links.extend(extract_model_level(model_data, year_params))
-    
-    return links
-
-def extract_model_level(model_data: Dict[str, Any], current_params: Dict[str, str]) -> List[str]:
-    """Extract links at model level"""
-    links = []
-    
-    if "options" in model_data:
-        for option in model_data["options"]:
-            # Skip placeholder entries
-            if option.get("value") is None or option.get("placeholder"):
-                continue
-                
-            model_params = {**current_params, "model": option["value"]}
-            links.append(build_url(model_params))
-            
-            # Process children (mkb)
-            if "children" in option and "mkb" in option["children"]:
-                mkb_data = option["children"]["mkb"]
-                links.extend(extract_mkb_level(mkb_data, model_params))
-    
-    return links
-
-def extract_mkb_level(mkb_data: Dict[str, Any], current_params: Dict[str, str]) -> List[str]:
-    """Extract links at mkb level"""
-    links = []
-    
-    if "options" in mkb_data:
-        for option in mkb_data["options"]:
-            # Skip placeholder entries
-            if option.get("value") is None or option.get("placeholder"):
-                continue
-                
-            mkb_params = {**current_params, "mkb": option["value"]}
-            links.append(build_url(mkb_params))
-    
-    return links
-
-# ================== DOCID & PAGE EXTRACTION ==================
 
 def normalize_url(url: str) -> str:
     """Chuẩn hóa URL: loại bỏ fragment, chuẩn hóa và xử lý parameters rỗng"""
@@ -399,7 +277,6 @@ def extract_docid_page_links(base_url: str, html: str) -> Set[str]:
                                 
                                 u = normalize_url(u)
                                 if in_domain(u):
-                                    # Nếu có docId nhưng chưa có page, sẽ xử lý ở phần extract_docids
                                     if has_docid_and_page(u):
                                         urls.add(u)
                             except Exception:
@@ -423,8 +300,17 @@ def extract_docid_page_links(base_url: str, html: str) -> Set[str]:
             urls.update(docid_page_urls)
             
             print(f"  🔍 Tìm thấy {len(docids)} docId, tạo {len(docid_page_urls)} links với page (max_page={max_page})")
+            
+            # Hiển thị các docIds tìm được
+            if len(docids) <= 10:
+                print(f"  📋 DocIds: {', '.join(sorted(docids))}")
+            else:
+                docids_list = sorted(list(docids))
+                print(f"  📋 DocIds (first 10): {', '.join(docids_list[:10])} ... và {len(docids) - 10} docIds khác")
     except Exception as e:
         print(f"  ⚠️  Lỗi khi extract docIds và tạo page links: {e}")
+        import traceback
+        traceback.print_exc()
     
     return urls
 
@@ -451,11 +337,44 @@ async def fetch_via_proxy(client: httpx.AsyncClient, url: str, proxy_base: str):
         print(f"[ERROR] {url}: {e}")
         raise
 
-async def extract_docid_page_from_url(url: str, proxy_base: str) -> Set[str]:
+def load_docid_page_links() -> Set[str]:
+    """Load danh sách URLs từ important_links_with_docid_and_page.json"""
+    if not os.path.exists(IMPORTANT_LINKS_DOCID_PAGE_FILE):
+        return set()
+    
+    try:
+        with open(IMPORTANT_LINKS_DOCID_PAGE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        urls = set()
+        if isinstance(data, list):
+            urls = set(data)
+        elif isinstance(data, dict) and 'urls' in data:
+            urls = {item.get('url') if isinstance(item, dict) else item for item in data['urls']}
+        
+        return urls
+    except Exception as e:
+        print(f"⚠️  Lỗi khi đọc {IMPORTANT_LINKS_DOCID_PAGE_FILE}: {e}")
+        return set()
+
+def save_docid_page_links(urls: List[str]):
+    """Lưu danh sách URLs vào important_links_with_docid_and_page.json"""
+    try:
+        sorted_urls = sorted(urls)
+        with open(IMPORTANT_LINKS_DOCID_PAGE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(sorted_urls, f, indent=2, ensure_ascii=False)
+        print(f"✅ Đã lưu {len(sorted_urls)} URLs vào {IMPORTANT_LINKS_DOCID_PAGE_FILE}")
+    except Exception as e:
+        print(f"❌ Lỗi khi lưu {IMPORTANT_LINKS_DOCID_PAGE_FILE}: {e}")
+        raise
+
+async def extract_and_append_from_url(url: str, proxy_base: str) -> Set[str]:
     """
     Extract docId và page links từ một URL cụ thể
     """
     print(f"\n🔍 Đang extract docId & page links từ: {url}")
+    print(f"   Proxy: {proxy_base}")
+    print("")
     
     async with httpx.AsyncClient() as client:
         try:
@@ -477,6 +396,7 @@ async def extract_docid_page_from_url(url: str, proxy_base: str) -> Set[str]:
                 html = r.text
             
             print(f"✅ Đã fetch HTML ({len(html)} chars)")
+            print("")
             
             # Extract links có docId và page
             extracted_urls = extract_docid_page_links(url, html)
@@ -486,186 +406,152 @@ async def extract_docid_page_from_url(url: str, proxy_base: str) -> Set[str]:
                 return set()
             
             print(f"✅ Tìm thấy {len(extracted_urls)} links có docId và page")
+            print("")
             
             # Hiển thị một vài ví dụ
-            print("\n📋 Ví dụ các links tìm được:")
-            for i, u in enumerate(list(extracted_urls)[:5], 1):
+            print("📋 Ví dụ các links tìm được (first 10):")
+            for i, u in enumerate(list(extracted_urls)[:10], 1):
                 print(f"   {i}. {u}")
-            if len(extracted_urls) > 5:
-                print(f"   ... và {len(extracted_urls) - 5} links khác")
+            if len(extracted_urls) > 10:
+                print(f"   ... và {len(extracted_urls) - 10} links khác")
+            print("")
             
             return extracted_urls
             
         except Exception as e:
             print(f"❌ Lỗi khi extract từ URL: {e}")
+            import traceback
+            traceback.print_exc()
             return set()
 
-def load_important_links() -> Set[str]:
-    """Load danh sách URLs từ important_links.json"""
-    if not os.path.exists(IMPORTANT_LINKS_FILE):
-        return set()
+async def process_urls(urls: List[str], proxy_base: str, append: bool = True):
+    """
+    Process nhiều URLs và append vào important_links_with_docid_and_page.json
+    """
+    all_extracted = set()
     
-    try:
-        with open(IMPORTANT_LINKS_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+    for i, url in enumerate(urls, 1):
+        print(f"\n{'='*60}")
+        print(f"Processing URL {i}/{len(urls)}")
+        print(f"{'='*60}")
         
-        urls = set()
-        if isinstance(data, list):
-            urls = set(data)
-        elif isinstance(data, dict) and 'urls' in data:
-            urls = {item.get('url') if isinstance(item, dict) else item for item in data['urls']}
+        # Normalize URL
+        normalized_url = normalize_url(url)
         
-        return urls
-    except Exception as e:
-        print(f"⚠️  Lỗi khi đọc {IMPORTANT_LINKS_FILE}: {e}")
-        return set()
-
-def save_important_links(urls: List[str]):
-    """Lưu danh sách URLs vào important_links.json"""
-    try:
-        sorted_urls = sorted(urls)
-        with open(IMPORTANT_LINKS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(sorted_urls, f, indent=2, ensure_ascii=False)
-        print(f"✅ Đã lưu {len(sorted_urls)} URLs vào {IMPORTANT_LINKS_FILE}")
-    except Exception as e:
-        print(f"❌ Lỗi khi lưu {IMPORTANT_LINKS_FILE}: {e}")
-        raise
-
-# ================== MAIN FUNCTIONS ==================
-
-def extract_from_tree() -> List[str]:
-    """Extract links từ tree_title.json"""
-    print("📖 Đang đọc tree_title.json...")
-    
-    try:
-        with open("tree_title.json", "r", encoding="utf-8") as f:
-            tree_data = json.load(f)
-    except FileNotFoundError:
-        print("❌ Không tìm thấy tree_title.json")
-        return []
-    except Exception as e:
-        print(f"❌ Lỗi khi đọc tree_title.json: {e}")
-        return []
-    
-    print("🔍 Đang extract links từ tree structure...")
-    
-    # Extract all important links
-    all_links = extract_links(tree_data)
-    
-    # Remove duplicates while preserving order
-    unique_links = list(dict.fromkeys(all_links))
-    
-    print(f"✅ Tìm thấy {len(unique_links)} unique links từ tree")
-    
-    return unique_links
-
-async def extract_from_url(url: str, proxy_base: str) -> Set[str]:
-    """Extract docId & page links từ một URL cụ thể"""
-    return await extract_docid_page_from_url(url, proxy_base)
-
-def main():
-    """Main function to extract and save links"""
-    parser = argparse.ArgumentParser(
-        description="Extract important links từ tree_title.json và/hoặc từ một URL cụ thể"
-    )
-    parser.add_argument("--url", type=str, 
-                        help="URL để extract docId & page links (ví dụ: https://kiagds.ru/?mode=ETM&marke=KM&year=2024&model=8353&mkb=129__25552)")
-    parser.add_argument("--proxy-base", type=str, default=PROXY_BASE,
-                        help=f"Proxy base URL (mặc định: {PROXY_BASE})")
-    parser.add_argument("--append", action="store_true",
-                        help="Append vào important_links.json thay vì ghi đè")
-    parser.add_argument("--tree-only", action="store_true",
-                        help="Chỉ extract từ tree_title.json (không extract từ URL)")
-    
-    args = parser.parse_args()
-    
-    all_links = set()
-    
-    # Extract từ tree_title.json
-    if not args.tree_only:
-        tree_links = extract_from_tree()
-        all_links.update(tree_links)
-    
-    # Extract từ URL nếu được chỉ định
-    if args.url:
-        if not in_domain(args.url):
-            print(f"❌ URL không thuộc domain kiagds.ru: {args.url}")
-            sys.exit(1)
+        if not in_domain(normalized_url):
+            print(f"⚠️  URL không thuộc domain kiagds.ru, bỏ qua: {url}")
+            continue
         
-        url_links = asyncio.run(extract_from_url(args.url, args.proxy_base))
-        all_links.update(url_links)
+        extracted = await extract_and_append_from_url(normalized_url, proxy_base)
+        all_extracted.update(extracted)
+        
+        # Delay giữa các requests
+        if i < len(urls):
+            await asyncio.sleep(0.5)
     
-    if not all_links:
-        print("❌ Không có links nào để lưu")
-        sys.exit(1)
-    
-    # Convert to list và sort
-    unique_links = sorted(list(all_links))
+    if not all_extracted:
+        print("\n⚠️  Không có links nào để lưu")
+        return
     
     # Load existing nếu append mode
-    if args.append:
-        existing = load_important_links()
-        new_links = {u for u in unique_links if u not in existing}
+    if append:
+        existing = load_docid_page_links()
+        new_links = {u for u in all_extracted if u not in existing}
+        
         if new_links:
-            print(f"\n📝 Tìm thấy {len(new_links)} links mới (tổng: {len(existing)} + {len(new_links)} = {len(existing) + len(new_links)})")
-            all_links = existing.union(new_links)
-            unique_links = sorted(list(all_links))
+            print(f"\n📝 Tìm thấy {len(new_links)} links mới")
+            print(f"   (Tổng: {len(existing)} + {len(new_links)} = {len(existing) + len(new_links)})")
+            all_extracted = existing.union(new_links)
         else:
-            print(f"\nℹ️  Tất cả links đã có trong {IMPORTANT_LINKS_FILE}")
-            unique_links = sorted(list(existing))
+            print(f"\nℹ️  Tất cả links đã có trong {IMPORTANT_LINKS_DOCID_PAGE_FILE}")
+            all_extracted = existing
+    else:
+        print(f"\n📝 Tìm thấy {len(all_extracted)} links (ghi đè file)")
     
     # Save to file
-    save_important_links(unique_links)
+    save_docid_page_links(sorted(list(all_extracted)))
     
-    # Also save as text file for easy viewing
-    output_text_file = "important_links.txt"
+    # Also save as text file
+    output_text_file = "important_links_with_docid_and_page.txt"
     with open(output_text_file, "w", encoding="utf-8") as f:
-        for link in unique_links:
+        for link in sorted(all_extracted):
             f.write(link + "\n")
     
     print(f"✅ Links cũng được lưu vào {output_text_file}")
     
-    # Print statistics
-    print("\n" + "="*60)
+    # Statistics
+    print(f"\n{'='*60}")
     print("📊 Statistics")
-    print("="*60)
+    print(f"{'='*60}")
+    print(f"   Tổng URLs có docId & page: {len(all_extracted)}")
     
-    # Count links by level
-    level_counts = {
-        "mode only": 0,
-        "mode + marke": 0,
-        "mode + marke + year": 0,
-        "mode + marke + year + model": 0,
-        "mode + marke + year + model + mkb": 0,
-        "có docId & page": 0
-    }
+    # Count by docId
+    docid_counts = {}
+    for url in all_extracted:
+        try:
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            docid = params.get("docId", [None])[0] or params.get("docid", [None])[0]
+            if docid:
+                docid_counts[docid] = docid_counts.get(docid, 0) + 1
+        except:
+            pass
     
-    for link in unique_links:
-        if has_docid_and_page(link):
-            level_counts["có docId & page"] += 1
-        else:
-            param_count = link.count("&") + (1 if "?" in link else 0)
-            if param_count == 1:
-                level_counts["mode only"] += 1
-            elif param_count == 2:
-                level_counts["mode + marke"] += 1
-            elif param_count == 3:
-                level_counts["mode + marke + year"] += 1
-            elif param_count == 4:
-                level_counts["mode + marke + year + model"] += 1
-            elif param_count == 5:
-                level_counts["mode + marke + year + model + mkb"] += 1
+    if docid_counts:
+        print(f"   Số docId unique: {len(docid_counts)}")
+        print(f"   Top 10 docId (theo số pages):")
+        sorted_docids = sorted(docid_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        for docid, count in sorted_docids:
+            print(f"      - docId={docid}: {count} pages")
+
+def main():
+    """Main function"""
+    parser = argparse.ArgumentParser(
+        description="Extract docId và page links từ URL(s) và append vào important_links_with_docid_and_page.json"
+    )
+    parser.add_argument("urls", nargs="+", type=str,
+                        help="URL(s) để extract (ví dụ: https://kiagds.ru/?mode=ETM&marke=KM&year=2026&model=9923&mkb=445__29519)")
+    parser.add_argument("--proxy-base", type=str, default=PROXY_BASE,
+                        help=f"Proxy base URL (mặc định: {PROXY_BASE})")
+    parser.add_argument("--no-append", action="store_true",
+                        help="Ghi đè file thay vì append")
+    parser.add_argument("--json-file", type=str,
+                        help="Đọc URLs từ file JSON (list of URLs)")
     
-    for level, count in level_counts.items():
-        if count > 0:
-            print(f"  {level}: {count} links")
+    args = parser.parse_args()
     
-    # Print first 10 examples
-    print("\n" + "="*60)
-    print("📋 First 10 links")
-    print("="*60)
-    for i, link in enumerate(unique_links[:10], 1):
-        print(f"{i}. {link}")
+    # Load URLs từ file JSON nếu được chỉ định
+    urls_to_process = list(args.urls)
+    
+    if args.json_file:
+        try:
+            print(f"📖 Đang đọc URLs từ file: {args.json_file}")
+            with open(args.json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            if isinstance(data, list):
+                urls_to_process.extend(data)
+            elif isinstance(data, dict) and 'urls' in data:
+                urls_to_process.extend([item.get('url') if isinstance(item, dict) else item for item in data['urls']])
+            
+            print(f"✅ Đã load {len(urls_to_process) - len(args.urls)} URLs từ JSON")
+        except Exception as e:
+            print(f"⚠️  Lỗi khi đọc file JSON: {e}")
+    
+    if not urls_to_process:
+        print("❌ Không có URLs nào để process")
+        sys.exit(1)
+    
+    # Remove duplicates
+    unique_urls = list(dict.fromkeys(urls_to_process))
+    print(f"\n📋 Tổng số URLs sẽ process: {len(unique_urls)}")
+    
+    # Process URLs
+    asyncio.run(process_urls(unique_urls, args.proxy_base, append=not args.no_append))
+    
+    print(f"\n{'='*60}")
+    print("✅ Hoàn thành!")
+    print(f"{'='*60}")
 
 if __name__ == "__main__":
     main()

@@ -70,7 +70,7 @@ if pgrep -f "auto_crawl_proxy.py.*important_links.json" > /dev/null; then
         echo "   ℹ️  Giữ nguyên crawler đang chạy"
         echo ""
         echo "   📊 Xem tiến trình:"
-        echo "      tail -f cache_important_full.log"
+        echo "      tail -f cache_important_full_depth50_concurrency10.log"
         echo ""
         exit 0
     fi
@@ -81,10 +81,12 @@ echo ""
 echo "📋 Step 3: Bắt đầu crawl FULL"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "   Total URLs: 16,304"
-echo "   Follow depth: 3"
-echo "   Concurrency: 5"
-echo "   Log file: cache_important_full.log"
+TOTAL_URLS=$(python3 -c "import json; print(len(json.load(open('important_links.json'))))" 2>/dev/null || echo "16,304")
+echo "   Total URLs: $TOTAL_URLS"
+echo "   Follow depth: 50"
+echo "   Concurrency: 10"
+echo "   Delay: 0.3s"
+echo "   Log file: cache_important_full_depth50_concurrency10.log"
 echo ""
 
 read -p "   Bắt đầu crawl? (y/n): " answer
@@ -98,12 +100,12 @@ echo "   🚀 Starting crawler..."
 
 nohup python3 auto_crawl_proxy.py \
   --json-file important_links.json \
-  --follow-depth 3 \
-  --concurrency 5 \
+  --follow-depth 50 \
+  --concurrency 10 \
   --delay 0.3 \
   --max-retries 10 \
   --auto-pagination \
-  > cache_important_full.log 2>&1 &
+  > cache_important_full_depth50_concurrency10.log 2>&1 &
 
 PID=$!
 sleep 2
@@ -115,7 +117,7 @@ if ps -p $PID > /dev/null; then
     echo ""
 else
     echo "   ❌ Crawler không khởi động được"
-    echo "   Kiểm tra log: cat cache_important_full.log"
+    echo "   Kiểm tra log: cat cache_important_full_depth50_concurrency10.log"
     echo ""
     exit 1
 fi
@@ -126,24 +128,24 @@ echo "║                  ✅ CRAWL ĐÃ BẮT ĐẦU                       ║
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 echo "📊 Monitor tiến trình:"
-echo "   tail -f cache_important_full.log"
+echo "   tail -f cache_important_full_depth50_concurrency10.log"
 echo "   # hoặc"
 echo "   watch -n 10 './check_progress.sh'"
 echo ""
 echo "🛑 Dừng crawl:"
 echo "   pkill -f auto_crawl_proxy.py"
 echo ""
-echo "⏱️  Ước tính thời gian: 8-15 giờ"
-echo "   (Tùy vào độ sâu và số links tìm được)"
+echo "⏱️  Ước tính thời gian: 20-40 giờ"
+echo "   (Với depth=50 và concurrency=10, sẽ crawl rất sâu và tìm nhiều links hơn)"
 echo ""
 echo "💡 Tip: Mở terminal mới để xem log realtime:"
-echo "   tail -f cache_important_full.log"
+echo "   tail -f cache_important_full_depth50_concurrency10.log"
 echo ""
 
 # Hiển thị vài dòng log đầu
 sleep 3
 echo "📝 Log preview (5 giây đầu):"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-tail -20 cache_important_full.log 2>/dev/null || echo "   (Đang khởi động...)"
+tail -20 cache_important_full_depth50_concurrency10.log 2>/dev/null || echo "   (Đang khởi động...)"
 echo ""
 
