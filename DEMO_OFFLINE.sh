@@ -6,7 +6,8 @@ echo "║       🔌 DEMO OFFLINE MODE - Hướng dẫn từng bước          
 echo "╔════════════════════════════════════════════════════════════╗"
 echo ""
 
-cd /home/xuananh/work_1/anhnx/crawl-2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "📊 Step 1: Kiểm tra cache hiện tại"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -35,7 +36,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "   Mở terminal mới và chạy:"
 echo ""
-echo "   cd /home/xuananh/work_1/anhnx/crawl-2"
+echo "   cd \"$SCRIPT_DIR\""
 echo "   ./start_offline.sh"
 echo ""
 echo "   (Giữ terminal đó chạy)"

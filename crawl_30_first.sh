@@ -1,7 +1,8 @@
 #!/bin/bash
 # Cache 30 URLs đầu tiên từ important_links.json (để test)
 
-cd /home/xuananh/work_1/anhnx/crawl-2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "=========================================="
 echo "Cache 30 URLs đầu tiên"

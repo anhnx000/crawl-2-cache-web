@@ -1,7 +1,8 @@
 #!/bin/bash
 # ALL-IN-ONE: Tự động chạy cả proxy và crawler
 
-cd /home/xuananh/work_1/anhnx/crawl-2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║       🚀 ALL-IN-ONE: Proxy + Crawler + Monitor            ║"

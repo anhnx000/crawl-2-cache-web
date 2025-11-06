@@ -1,7 +1,8 @@
 #!/bin/bash
 # Chạy proxy ở chế độ OFFLINE (chỉ dùng cache)
 
-cd /home/xuananh/work_1/anhnx/crawl-2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "=========================================="
 echo "🔌 Starting Proxy in OFFLINE Mode"

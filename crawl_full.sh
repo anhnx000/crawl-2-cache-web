@@ -1,7 +1,8 @@
 #!/bin/bash
 # Cache FULL toàn bộ important_links.json (16,304 URLs)
 
-cd /home/xuananh/work_1/anhnx/crawl-2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "=========================================="
 echo "Cache FULL important_links.json"

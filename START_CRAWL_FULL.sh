@@ -6,7 +6,23 @@ echo "║     🚀 START FULL CRAWL - 16,304 Important Links          ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
-cd /home/xuananh/work_1/anhnx/crawl-2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Optional argument: depth (default 10)
+DEPTH_DEFAULT=10
+if [ -n "${1-}" ]; then
+    if echo "$1" | grep -Eq '^[0-9]+$'; then
+        DEPTH="$1"
+    else
+        echo "❌ Invalid depth: '$1' (must be a non-negative integer)"
+        echo "Usage: $0 [depth]"
+        echo "       depth default = $DEPTH_DEFAULT"
+        exit 1
+    fi
+else
+    DEPTH="$DEPTH_DEFAULT"
+fi
 
 # Bước 1: Kiểm tra proxy
 echo "📋 Step 1: Kiểm tra proxy..."
@@ -30,7 +46,7 @@ else
     echo ""
     echo "   💡 Hãy mở terminal mới và chạy:"
     echo ""
-    echo "   cd /home/xuananh/work_1/anhnx/crawl-2"
+    echo "   cd \"$SCRIPT_DIR\""
     echo "   ./start_online.sh"
     echo ""
     echo "   (Giữ terminal đó chạy)"
@@ -82,11 +98,12 @@ echo "📋 Step 3: Bắt đầu crawl FULL"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 TOTAL_URLS=$(python3 -c "import json; print(len(json.load(open('important_links.json'))))" 2>/dev/null || echo "16,304")
+LOG_FILE="cache_important_full_depth${DEPTH}_concurrency10.log"
 echo "   Total URLs: $TOTAL_URLS"
-echo "   Follow depth: 50"
+echo "   Follow depth: $DEPTH"
 echo "   Concurrency: 10"
 echo "   Delay: 0.3s"
-echo "   Log file: cache_important_full_depth50_concurrency10.log"
+echo "   Log file: $LOG_FILE"
 echo ""
 
 read -p "   Bắt đầu crawl? (y/n): " answer
@@ -100,12 +117,12 @@ echo "   🚀 Starting crawler..."
 
 nohup python3 auto_crawl_proxy.py \
   --json-file important_links.json \
-  --follow-depth 50 \
+  --follow-depth "$DEPTH" \
   --concurrency 10 \
   --delay 0.3 \
   --max-retries 10 \
   --auto-pagination \
-  > cache_important_full_depth50_concurrency10.log 2>&1 &
+  > "$LOG_FILE" 2>&1 &
 
 PID=$!
 sleep 2
@@ -117,7 +134,7 @@ if ps -p $PID > /dev/null; then
     echo ""
 else
     echo "   ❌ Crawler không khởi động được"
-    echo "   Kiểm tra log: cat cache_important_full_depth50_concurrency10.log"
+    echo "   Kiểm tra log: cat $LOG_FILE"
     echo ""
     exit 1
 fi
@@ -128,7 +145,7 @@ echo "║                  ✅ CRAWL ĐÃ BẮT ĐẦU                       ║
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 echo "📊 Monitor tiến trình:"
-echo "   tail -f cache_important_full_depth50_concurrency10.log"
+echo "   tail -f $LOG_FILE"
 echo "   # hoặc"
 echo "   watch -n 10 './check_progress.sh'"
 echo ""
@@ -139,13 +156,13 @@ echo "⏱️  Ước tính thời gian: 20-40 giờ"
 echo "   (Với depth=50 và concurrency=10, sẽ crawl rất sâu và tìm nhiều links hơn)"
 echo ""
 echo "💡 Tip: Mở terminal mới để xem log realtime:"
-echo "   tail -f cache_important_full_depth50_concurrency10.log"
+echo "   tail -f $LOG_FILE"
 echo ""
 
 # Hiển thị vài dòng log đầu
 sleep 3
 echo "📝 Log preview (5 giây đầu):"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-tail -20 cache_important_full_depth50_concurrency10.log 2>/dev/null || echo "   (Đang khởi động...)"
+tail -20 "$LOG_FILE" 2>/dev/null || echo "   (Đang khởi động...)"
 echo ""
 

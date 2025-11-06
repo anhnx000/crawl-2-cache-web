@@ -2,7 +2,8 @@
 # Chạy proxy offline viewer ở port 5003
 # Read-only: Chỉ đọc cache, không ảnh hưởng đến crawl process ở port 5002
 
-cd /home/xuananh/work_1/anhnx/crawl-2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║       🔌 Offline Viewer - Port 5003                        ║"
