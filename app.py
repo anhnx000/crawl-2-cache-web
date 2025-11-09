@@ -493,23 +493,33 @@ def ajax_handler():
             except Exception:
                 pass
     
-    # BƯỚC 2: Nếu không có cache, generate từ tree_title.json
+    # BƯỚC 2: Nếu không có cache, generate từ tree_title.json và LƯU CACHE
+    generated_content = None
+    generated_content_type = "text/html; charset=utf-8"
+    
     if cat == "leftMenu":
-        menu_html = _generate_menu_html(params)
-        return Response(menu_html, content_type="text/html; charset=utf-8")
+        generated_content = _generate_menu_html(params)
     
     elif cat == "titleCar":
-        title = _generate_title_car(params)
-        return Response(title, content_type="text/html; charset=utf-8")
+        generated_content = _generate_title_car(params)
     
     elif cat and cat.startswith("get_"):
         # Handle get_marke, get_year, get_model, get_mkb
         select_type = cat.replace("get_", "")
         if select_type in ["marke", "year", "model", "mkb"]:
-            options_html = _generate_select_options(params, select_type)
-            return Response(options_html, content_type="text/html; charset=utf-8")
+            generated_content = _generate_select_options(params, select_type)
     
-    # BƯỚC 3: Fallback về proxy bình thường (nếu online)
+    # Nếu đã generate từ tree_title.json, lưu cache và trả về
+    if generated_content is not None:
+        body_bytes = generated_content.encode("utf-8")
+        headers_dict = {"Content-Type": generated_content_type}
+        # Lưu cache để lần sau có thể dùng
+        _save_cache("GET", target, body_bytes, headers_dict, 200)
+        # Rewrite URLs trong content nếu cần
+        text_rewritten = _rewrite_text(generated_content)
+        return Response(text_rewritten, content_type=generated_content_type)
+    
+    # BƯỚC 3: Fallback về proxy bình thường (nếu online) - sẽ tự động lưu cache trong _proxy_get()
     if LIVE_FALLBACK:
         return _proxy_get("/ajax.php")
     else:

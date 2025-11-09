@@ -1,0 +1,40 @@
+{
+  "mode": [
+    {
+      "value": "ETM",
+      "title": "ETM",
+      "children": {
+        "marke": {
+          "options": [
+            {
+              "value": "HY",
+              "title": "HYUNDAI"
+            },
+            {
+              "value": "KM",
+              "title": "KIA"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "value": "SHOP",
+      "title": "SHOP",
+      "children": {
+        "marke": {
+          "options": [
+            {
+              "value": "HY",
+              "title": "HYUNDAI"
+            },
+            {
+              "value": "KM",
+              "title": "KIA"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
